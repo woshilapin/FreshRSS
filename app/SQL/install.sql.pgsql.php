@@ -47,6 +47,10 @@ define('SQL_INSERT_DEFAULT_CATEGORY','
 	INSERT INTO "%1$scategory" ("id", "name") VALUES (1, "%2$s");
 ');
 
-define('SQL_DROP_TABLES', 'DROP TABLES %1$sentry, %1$sfeed, %1$scategory');
+define('SQL_DROP_TABLES', '
+	DROP TABLE %1$sentry;
+	DROP TABLE %1$sfeed;
+	DROP TABLE %1$scategory;
+');
 
 define('SQL_SHOW_TABLES', '');
