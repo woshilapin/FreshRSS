@@ -17,6 +17,8 @@ if (isset($_GET['step'])) {
 
 if ($_SESSION['bd_type'] === 'mysql') {
 	define('SQL_CREATE_DB', 'CREATE DATABASE IF NOT EXISTS %1$s DEFAULT CHARACTER SET utf8 COLLATE utf8_unicode_ci;');
+} else {
+	define('SQL_CREATE_DB', ';');
 }
 
 if (STEP === 3 && isset($_POST['type'])) {
