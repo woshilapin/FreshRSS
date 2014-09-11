@@ -344,6 +344,39 @@ class Minz_Configuration {
 					self::$db['base'] = '';
 					self::$db['prefix'] = '';
 					break;
+				case 'pgsql':
+					if (empty($db['host'])) {
+						throw new Minz_BadConfigurationException (
+							'host',
+							Minz_Exception::ERROR
+						);
+					}
+					if (empty($db['user'])) {
+						throw new Minz_BadConfigurationException (
+							'user',
+							Minz_Exception::ERROR
+						);
+					}
+					if (!isset($db['password'])) {
+						throw new Minz_BadConfigurationException (
+							'password',
+							Minz_Exception::ERROR
+						);
+					}
+					if (empty($db['base'])) {
+						throw new Minz_BadConfigurationException (
+							'base',
+							Minz_Exception::ERROR
+						);
+					}
+					self::$db['host'] = $db['host'];
+					self::$db['user'] = $db['user'];
+					self::$db['password'] = $db['password'];
+					self::$db['base'] = $db['base'];
+					if (isset($db['prefix'])) {
+						self::$db['prefix'] = $db['prefix'];
+					}
+					break;
 				default:
 					throw new Minz_BadConfigurationException (
 						'type',

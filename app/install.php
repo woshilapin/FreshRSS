@@ -15,7 +15,9 @@ if (isset($_GET['step'])) {
 	define('STEP', 0);
 }
 
-define('SQL_CREATE_DB', 'CREATE DATABASE IF NOT EXISTS %1$s DEFAULT CHARACTER SET utf8 COLLATE utf8_unicode_ci;');
+if ($_SESSION['bd_type'] === 'mysql') {
+	define('SQL_CREATE_DB', 'CREATE DATABASE IF NOT EXISTS %1$s DEFAULT CHARACTER SET utf8 COLLATE utf8_unicode_ci;');
+}
 
 if (STEP === 3 && isset($_POST['type'])) {
 	$_SESSION['bd_type'] = $_POST['type'];
@@ -28,6 +30,9 @@ if (isset($_SESSION['bd_type'])) {
 		break;
 	case 'sqlite':
 		include(APP_PATH . '/SQL/install.sql.sqlite.php');
+		break;
+	case 'pgsql':
+		include(APP_PATH . '/SQL/install.sql.pgsql.php');
 		break;
 	}
 }
@@ -246,6 +251,9 @@ function newPdo() {
 			PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
 		);
 		break;
+	case 'pgsql':
+		$str = 'pgsql:host=' . $_SESSION['bd_host'] . ';dbname=' . $_SESSION['bd_base'];
+		break;
 	default:
 		return false;
 	}
@@ -298,7 +306,8 @@ function checkStep1() {
 	$curl = extension_loaded('curl');
 	$pdo_mysql = extension_loaded('pdo_mysql');
 	$pdo_sqlite = extension_loaded('pdo_sqlite');
-	$pdo = $pdo_mysql || $pdo_sqlite;
+	$pdo_pgsql = extension_loaded('pdo_pgsql');
+	$pdo = $pdo_mysql || $pdo_sqlite || $pdo_pgsql;
 	$pcre = extension_loaded('pcre');
 	$ctype = extension_loaded('ctype');
 	$dom = class_exists('DOMDocument');
@@ -314,6 +323,7 @@ function checkStep1() {
 		'curl' => $curl ? 'ok' : 'ko',
 		'pdo-mysql' => $pdo_mysql ? 'ok' : 'ko',
 		'pdo-sqlite' => $pdo_sqlite ? 'ok' : 'ko',
+		'pdo-pgsql' => $pdo_pgsql ? 'ok' : 'ko',
 		'pdo' => $pdo ? 'ok' : 'ko',
 		'pcre' => $pcre ? 'ok' : 'ko',
 		'ctype' => $ctype ? 'ok' : 'ko',
@@ -402,6 +412,19 @@ function checkBD() {
 				PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
 			);
 			break;
+		case 'pgsql':
+
+			try {	// on ouvre une connexion juste pour créer la base si elle n'existe pas
+				$str = 'pgsql:host=' . $_SESSION['bd_host'] . ';';
+				$c = new PDO ($str, $_SESSION['bd_user'], $_SESSION['bd_password']);
+				$sql = sprintf (SQL_CREATE_DB, $_SESSION['bd_base']);
+				$res = $c->query ($sql);
+			} catch (PDOException $e) {
+			}
+
+			// on écrase la précédente connexion en sélectionnant la nouvelle BDD
+			$str = 'pgsql:host=' . $_SESSION['bd_host'] . ';dbname=' . $_SESSION['bd_base'];
+			break;
 		default:
 			return false;
 		}
@@ -409,9 +432,32 @@ function checkBD() {
 		$c = new PDO($str, $_SESSION['bd_user'], $_SESSION['bd_password'], $driver_options);
 
 		if (defined('SQL_CREATE_TABLES')) {
-			$sql = sprintf(SQL_CREATE_TABLES, $_SESSION['bd_prefix_user'], _t('default_category'));
-			$stm = $c->prepare($sql);
-			$ok = $stm->execute();
+			if ($_SESSION['bd_type'] === 'pgsql') {
+				if (defined('SQL_CREATE_TABLE_CATEGORY')) {
+					$sql = sprintf(SQL_CREATE_TABLE_CATEGORY, $_SESSION['bd_prefix_user'], _t('default_category'));
+					$stm = $c->prepare($sql);
+					$ok = $stm->execute();
+				}
+				if (defined('SQL_CREATE_TABLE_FEED')) {
+					$sql = sprintf(SQL_CREATE_TABLE_FEED, $_SESSION['bd_prefix_user'], _t('default_category'));
+					$stm = $c->prepare($sql);
+					$ok = $stm->execute();
+				}
+				if (defined('SQL_CREATE_TABLE_ENTRY')) {
+					$sql = sprintf(SQL_CREATE_TABLE_ENTRY, $_SESSION['bd_prefix_user'], _t('default_category'));
+					$stm = $c->prepare($sql);
+					$ok = $stm->execute();
+				}
+				// if (defined('SQL_INSERT_DEFAULT_CATEGORY')) {
+				// 	$sql = sprintf(SQL_INSERT_DEFAULT_CATEGORY, $_SESSION['bd_prefix_user'], _t('default_category'));
+				// 	$stm = $c->prepare($sql);
+				// 	$ok = $stm->execute();
+				// }
+			} else {
+				$sql = sprintf(SQL_CREATE_TABLES, $_SESSION['bd_prefix_user'], _t('default_category'));
+				$stm = $c->prepare($sql);
+				$ok = $stm->execute();
+			}
 		} else {
 			global $SQL_CREATE_TABLES;
 			if (is_array($SQL_CREATE_TABLES)) {
@@ -667,7 +713,7 @@ function printStep3() {
 		<div class="form-group">
 			<label class="group-name" for="type"><?php echo _t('bdd_type'); ?></label>
 			<div class="group-controls">
-				<select name="type" id="type" onchange="mySqlShowHide()">
+				<select name="type" id="type" onchange="DBShowHide()">
 				<?php if (extension_loaded('pdo_mysql')) {?>
 				<option value="mysql"
 					<?php echo(isset($_SESSION['bd_type']) && $_SESSION['bd_type'] === 'mysql') ? 'selected="selected"' : ''; ?>>
@@ -678,6 +724,12 @@ function printStep3() {
 				<option value="sqlite"
 					<?php echo(isset($_SESSION['bd_type']) && $_SESSION['bd_type'] === 'sqlite') ? 'selected="selected"' : ''; ?>>
 					SQLite
+				</option>
+				<?php }?>
+				<?php if (extension_loaded('pdo_pgsql')) {?>
+				<option value="pgsql"
+					<?php echo(isset($_SESSION['bd_type']) && $_SESSION['bd_type'] === 'pgsql') ? 'selected="selected"' : ''; ?>>
+					PostgreSQL
 				</option>
 				<?php }?>
 				</select>
@@ -719,12 +771,49 @@ function printStep3() {
 				<input type="text" id="prefix" name="prefix" maxlength="16" pattern="[0-9A-Za-z_]{1,16}" value="<?php echo isset($_SESSION['bd_prefix']) ? $_SESSION['bd_prefix'] : 'freshrss_'; ?>" />
 			</div>
 		</div>
+	</div>
+	<div id="pgsql">
+		<div class="form-group">
+			<label class="group-name" for="host"><?php echo _t('host'); ?></label>
+			<div class="group-controls">
+				<input type="text" id="host" name="host" pattern="[0-9A-Za-z_.-]{1,64}" value="<?php echo isset ($_SESSION['bd_host']) ? $_SESSION['bd_host'] : 'localhost'; ?>" />
+			</div>
+		</div>
+
+		<div class="form-group">
+			<label class="group-name" for="user"><?php echo _t('username'); ?></label>
+			<div class="group-controls">
+				<input type="text" id="user" name="user" maxlength="16" pattern="[0-9A-Za-z_.-]{1,16}" value="<?php echo isset ($_SESSION['bd_user']) ? $_SESSION['bd_user'] : ''; ?>" />
+			</div>
+		</div>
+
+		<div class="form-group">
+			<label class="group-name" for="pass"><?php echo _t('password'); ?></label>
+			<div class="group-controls">
+				<input type="password" id="pass" name="pass" value="<?php echo isset ($_SESSION['bd_password']) ? $_SESSION['bd_password'] : ''; ?>" />
+			</div>
+		</div>
+
+		<div class="form-group">
+			<label class="group-name" for="base"><?php echo _t('bdd'); ?></label>
+			<div class="group-controls">
+				<input type="text" id="base" name="base" maxlength="64" pattern="[0-9A-Za-z_]{1,64}" value="<?php echo isset ($_SESSION['bd_base']) ? $_SESSION['bd_base'] : ''; ?>" placeholder="freshrss" />
+			</div>
+		</div>
+
+		<div class="form-group">
+			<label class="group-name" for="prefix"><?php echo _t('prefix'); ?></label>
+			<div class="group-controls">
+				<input type="text" id="prefix" name="prefix" maxlength="16" pattern="[0-9A-Za-z_]{1,16}" value="<?php echo isset ($_SESSION['bd_prefix']) ? $_SESSION['bd_prefix'] : 'freshrss_'; ?>" />
+			</div>
+		</div>
 		</div>
 		<script>
-			function mySqlShowHide() {
+			function DBShowHide() {
 				document.getElementById('mysql').style.display = document.getElementById('type').value === 'mysql' ? 'block' : 'none';
+				document.getElementById('pgsql').style.display = document.getElementById('type').value === 'pgsql' ? 'block' : 'none';
 			}
-			mySqlShowHide();
+			DBShowHide();
 		</script>
 
 		<div class="form-group form-actions">
